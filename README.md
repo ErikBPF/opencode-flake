@@ -76,9 +76,12 @@ and published to FlakeHub as rolling releases.
 - **Commit pin**: highest assurance, combine with local builds.
 
 What you trust with `withPackage`: this repo's update workflow (SHA-pinned
-actions, auto-merge only after required checks), upstream release
-artifacts, and the binary cache if one is configured. The default module
-without `withPackage` uses your own nixpkgs' `pkgs.opencode` instead.
+actions, auto-merge only after required checks) and upstream release
+artifacts. There is no third-party binary cache — CI builds only verify;
+consumers build the package themselves or substitute from their own cache
+(the maintainer's fleet substitutes from a private nix-serve that is warmed
+nightly with full host closures). The default module without `withPackage`
+uses your own nixpkgs' `pkgs.opencode` instead.
 
 ## Checks
 
@@ -89,6 +92,4 @@ asserts the off-by-default posture (no package, no tui.json, no plugin).
 
 ## Roadmap
 
-- Cachix binary cache: workflow step is wired (cache `erikbpf`) but dormant
-  until the cache exists and `CACHIX_AUTH_TOKEN` is set in repo secrets.
 - desktop-nixos adoption + laptop config migration (RFC §5).

@@ -27,22 +27,15 @@ jobs:
 
   # Required, not advisory: auto-merged bump PRs must prove the package
   # builds and reports the right version before they can land.
+  # No third-party binary cache: the fleet substitutes prebuilt closures
+  # from orion's nix-serve (warmed nightly by nix-cache-builder in
+  # desktop-nixos); this job only verifies.
   package-build:
     runs-on: ubuntu-latest
-    env:
-      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - uses: DeterminateSystems/determinate-nix-action@629b284231c2a82554b724e357e47fc6020833c8 # v3
-
-      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
-        if: env.CACHIX_AUTH_TOKEN != ''
-        with:
-          name: erikbpf
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          # Push only from trusted main builds, never from PR forks.
-          skipPush: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
 
       - name: Build and smoke-test the opencode package
         run: |
