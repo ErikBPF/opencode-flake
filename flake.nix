@@ -23,7 +23,47 @@
     flake-parts.lib.mkFlake {inherit inputs;} {
       systems = ["x86_64-linux"];
 
-      perSystem = {pkgs, ...}: {
+      perSystem = {pkgs, ...}: let
+        opencodePackage = pkgs.callPackage ./packages/opencode/package.nix {};
+      in {
+        packages = {
+          default = opencodePackage;
+          opencode = opencodePackage;
+        };
+
+        apps = {
+          default = {
+            type = "app";
+            program = "${opencodePackage}/bin/opencode";
+            meta.description = "Run packaged opencode";
+          };
+          opencode = {
+            type = "app";
+            program = "${opencodePackage}/bin/opencode";
+            meta.description = "Run packaged opencode";
+          };
+          update = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "opencode-flake-update" ''
+              set -euo pipefail
+              cd "$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null \
+                    || { echo "must be run from inside the flake repo" >&2; exit 1; })"
+              exec ${pkgs.bash}/bin/bash ./scripts/update-opencode.sh "$@"
+            '');
+            meta.description = "Check + apply latest upstream opencode release";
+          };
+          update-check = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "opencode-flake-update-check" ''
+              set -euo pipefail
+              cd "$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null \
+                    || { echo "must be run from inside the flake repo" >&2; exit 1; })"
+              exec ${pkgs.bash}/bin/bash ./scripts/update-opencode.sh --check
+            '');
+            meta.description = "Exit 1 if upstream opencode is newer than the package";
+          };
+        };
+
         checks = import ./checks.nix {
           inherit inputs pkgs self;
         };
@@ -37,13 +77,24 @@
             deadnix
             just
             nil
+            nix-update
             statix
           ];
         };
       };
 
       flake = {
-        homeManagerModules.default = import ./modules/home-manager.nix;
+        homeManagerModules = {
+          default = import ./modules/home-manager.nix;
+          withPackage = {pkgs, ...}: {
+            imports = [self.homeManagerModules.default];
+            programs.opencode.package = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
+          };
+        };
+
+        overlays.default = _final: prev: {
+          opencode-latest = self.packages.${prev.stdenv.hostPlatform.system}.opencode;
+        };
       };
     };
 }

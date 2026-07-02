@@ -52,6 +52,34 @@ Provider policy deliberately stays out of this flake (decision D3) — set
 `programs.opencode.settings.provider` host-side; attrsets merge with the
 profile's settings.
 
+## Fast package lane
+
+The flake owns a vendored `packages.opencode` (nixpkgs expression with the
+`passthru.jsonschema` bug fixed) so consumers can get opencode releases
+without waiting for their nixpkgs pin:
+
+```nix
+imports = [inputs.opencode-flake.homeManagerModules.withPackage];
+```
+
+A daily workflow checks upstream `anomalyco/opencode` releases, bumps
+version + hashes via `nix-update --subpackage node_modules`, builds and
+smoke-tests, then opens an auto-merge PR gated on required checks (which
+include the package build). Merges to main are tagged `opencode-vX.Y.Z`
+and published to FlakeHub as rolling releases.
+
+## Trust modes
+
+- **Rolling** (FlakeHub wildcard / `main`): every commit that passed the
+  required checks, fastest.
+- **Version pin** (`opencode-vX.Y.Z` tag): reproducible, best default.
+- **Commit pin**: highest assurance, combine with local builds.
+
+What you trust with `withPackage`: this repo's update workflow (SHA-pinned
+actions, auto-merge only after required checks), upstream release
+artifacts, and the binary cache if one is configured. The default module
+without `withPackage` uses your own nixpkgs' `pkgs.opencode` instead.
+
 ## Checks
 
 `nix flake check` validates the rendered `opencode.json` / `tui.json`
@@ -61,5 +89,6 @@ asserts the off-by-default posture (no package, no tui.json, no plugin).
 
 ## Roadmap
 
-- Fast package lane (`packages.opencode` + daily auto-merge updater +
-  Cachix + FlakeHub), mirroring `codex-flake` — slices 2–4 of the RFC.
+- Cachix binary cache: workflow step is wired (cache `erikbpf`) but dormant
+  until the cache exists and `CACHIX_AUTH_TOKEN` is set in repo secrets.
+- desktop-nixos adoption + laptop config migration (RFC §5).

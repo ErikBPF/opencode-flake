@@ -1,0 +1,87 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: DeterminateSystems/determinate-nix-action@629b284231c2a82554b724e357e47fc6020833c8 # v3
+
+      - name: nix flake check
+        run: nix flake check --print-build-logs
+
+  # Required, not advisory: auto-merged bump PRs must prove the package
+  # builds and reports the right version before they can land.
+  package-build:
+    runs-on: ubuntu-latest
+    env:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: DeterminateSystems/determinate-nix-action@629b284231c2a82554b724e357e47fc6020833c8 # v3
+
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        if: env.CACHIX_AUTH_TOKEN != ''
+        with:
+          name: erikbpf
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Push only from trusted main builds, never from PR forks.
+          skipPush: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
+
+      - name: Build and smoke-test the opencode package
+        run: |
+          set -euo pipefail
+          nix build .#opencode --print-build-logs
+          version="$(nix eval --raw .#opencode.version)"
+          ./result/bin/opencode --version | grep -F "$version"
+
+  flakehub-publish:
+    runs-on: ubuntu-latest
+    needs: [check, package-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: DeterminateSystems/determinate-nix-action@629b284231c2a82554b724e357e47fc6020833c8 # v3
+
+      - uses: DeterminateSystems/flakehub-push@0e801cf490b3b3dcb099131a69146bc59d610d0f # main, pinned 2026-06-30
+        with:
+          name: ErikBPF/opencode-flake
+          rolling: true
+          visibility: public
+
+  flakehub-verify:
+    runs-on: ubuntu-latest
+    needs: flakehub-publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: DeterminateSystems/determinate-nix-action@629b284231c2a82554b724e357e47fc6020833c8 # v3
+
+      - name: FlakeHub wildcard resolves to this commit
+        run: |
+          set -euo pipefail
+          metadata="$(nix flake metadata --refresh 'https://flakehub.com/f/ErikBPF/opencode-flake/*' --json)"
+          revision="$(printf '%s\n' "$metadata" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          if [ "$revision" != "$GITHUB_SHA" ]; then
+            printf 'FlakeHub wildcard resolved %s, expected %s\n' "$revision" "$GITHUB_SHA" >&2
+            exit 1
+          fi

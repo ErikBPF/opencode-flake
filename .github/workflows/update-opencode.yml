@@ -1,0 +1,106 @@
+name: Update opencode Version
+
+on:
+  schedule:
+    - cron: '23 9 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-and-update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - uses: DeterminateSystems/determinate-nix-action@629b284231c2a82554b724e357e47fc6020833c8 # v3
+        with:
+          extra-conf: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for updates
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          output="$(./scripts/update-opencode.sh --check 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          current="$(printf '%s\n' "$output" | sed -n 's/.*current: //p' | tail -1)"
+          latest="$(printf '%s\n' "$output" | sed -n 's/.*latest:  //p' | tail -1)"
+          release="$(printf '%s\n' "$output" | sed -n 's/.*release: //p' | tail -1)"
+          {
+            echo "current=$current"
+            echo "latest=$latest"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$status" -eq 0 ]; then
+            echo "update_needed=false"
+          elif [ "$status" -eq 1 ]; then
+            echo "update_needed=true"
+          else
+            exit "$status"
+          fi >> "$GITHUB_OUTPUT"
+
+      - name: Apply update
+        if: steps.check.outputs.update_needed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          nix shell nixpkgs#nix-update --command \
+            ./scripts/update-opencode.sh --version "${{ steps.check.outputs.latest }}"
+
+      - name: Create pull request
+        if: steps.check.outputs.update_needed == 'true'
+        id: create-pr
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: bump opencode to ${{ steps.check.outputs.latest }}"
+          title: "chore: bump opencode ${{ steps.check.outputs.current }} -> ${{ steps.check.outputs.latest }}"
+          body: |
+            ## Automated opencode bump
+
+            Updates the packaged opencode release from `${{ steps.check.outputs.current }}` to `${{ steps.check.outputs.latest }}`.
+
+            Upstream release: ${{ steps.check.outputs.release }}
+
+            ### Verified in updater
+            - `nix-update opencode --subpackage node_modules`
+            - `nix build .#opencode`
+            - `nix run .#opencode -- --version`
+
+            Required PR checks must pass before auto-merge.
+          branch: update-opencode-${{ steps.check.outputs.latest }}
+          delete-branch: true
+          labels: |
+            dependencies
+            automated
+
+      - name: Enable auto-merge
+        if: steps.check.outputs.update_needed == 'true' && steps.create-pr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge "${{ steps.create-pr.outputs.pull-request-number }}" --auto --squash --delete-branch
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## opencode update summary"
+            echo
+            echo "- Current: \`${{ steps.check.outputs.current }}\`"
+            echo "- Latest: \`${{ steps.check.outputs.latest }}\`"
+            echo "- Release: ${{ steps.check.outputs.release }}"
+            echo "- Update needed: \`${{ steps.check.outputs.update_needed }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
