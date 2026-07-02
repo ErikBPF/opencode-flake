@@ -3,47 +3,48 @@
   pkgs,
   self,
 }: let
-  hmConfig = extraModules:
-    inputs.home-manager.lib.homeManagerConfiguration {
-      inherit pkgs;
-      modules =
-        [
-          self.homeManagerModules.default
-          {
-            home = {
-              username = "opencode-test";
-              homeDirectory = "/home/opencode-test";
-              stateVersion = "25.11";
-            };
-          }
-        ]
-        ++ extraModules;
-    };
+  inherit (pkgs) lib;
 
-  enabled = hmConfig [
-    {
-      programs.opencode-profile = {
-        enable = true;
-        tui.enable = true;
-        style.enable = true;
-        rtk.enable = true;
-        agents.extraText = "profile-check-marker";
-      };
-    }
-  ];
+  defaults = inputs.home-manager.lib.homeManagerConfiguration {
+    inherit pkgs;
+    modules = [
+      self.homeManagerModules.default
+      {
+        home = {
+          username = "opencode-test";
+          homeDirectory = "/home/opencode-test";
+          stateVersion = "25.11";
+        };
+        programs.opencode-profile.enable = true;
+      }
+    ];
+  };
 
-  defaults = hmConfig [
-    {
-      programs.opencode-profile.enable = true;
-    }
-  ];
+  enabled = defaults.extendModules {
+    modules = [
+      {
+        programs.opencode-profile = {
+          tui.enable = true;
+          style.enable = true;
+          rtk.enable = true;
+          agents.extraText = "profile-check-marker";
+        };
+      }
+    ];
+  };
 
   enabledFiles = enabled.config.xdg.configFile;
   defaultsFiles = defaults.config.xdg.configFile;
 
   settingsJson = enabledFiles."opencode/opencode.json".source;
   tuiJson = enabledFiles."opencode/tui.json".source;
-  agentsMd = enabledFiles."opencode/AGENTS.md".source or (pkgs.writeText "missing" "");
+  agentsMd = enabledFiles."opencode/AGENTS.md".source;
+
+  # Schemas come from the package the evaluated config actually installs, so
+  # schema and binary cannot diverge. Paths are spelled out because nixpkgs'
+  # `passthru.jsonschema` uses `placeholder "out"`, which only resolves
+  # inside the opencode derivation itself.
+  opencodePkg = enabled.config.programs.opencode.package;
 in {
   lint =
     pkgs.runCommand "opencode-flake-lint" {
@@ -56,25 +57,16 @@ in {
       touch "$out"
     '';
 
-  # Rendered opencode.json / tui.json must validate against the JSON schemas
-  # shipped by the opencode package. Paths are spelled out because
-  # `passthru.jsonschema` uses `placeholder "out"`, which only resolves
-  # inside the opencode derivation itself (nixpkgs bug).
-  schema-validate =
-    pkgs.runCommand "opencode-schema-validate" {
-      nativeBuildInputs = [pkgs.check-jsonschema];
+  # One build over the final rendered artifacts: schema validation plus the
+  # G1/G3/context/plugin render assertions (jq inspects the same files the
+  # schemas validate, so DAG-ordered rule rendering is covered too).
+  render-and-schema =
+    pkgs.runCommand "opencode-render-and-schema" {
+      nativeBuildInputs = [pkgs.check-jsonschema pkgs.jq];
     } ''
-      check-jsonschema --schemafile ${pkgs.opencode}/share/opencode/config.json ${settingsJson}
-      check-jsonschema --schemafile ${pkgs.opencode}/share/opencode/tui.json ${tuiJson}
-      touch "$out"
-    '';
+      check-jsonschema --schemafile ${opencodePkg}/share/opencode/config.json ${settingsJson}
+      check-jsonschema --schemafile ${opencodePkg}/share/opencode/tui.json ${tuiJson}
 
-  # G1 guardrails + mcp-nixos land in opencode.json; AGENTS.md carries the
-  # profile content; the RTK plugin file is installed.
-  module-render =
-    pkgs.runCommand "opencode-module-render" {
-      nativeBuildInputs = [pkgs.jq];
-    } ''
       jq -e '.permission.edit."**/*.sops" == "deny"' ${settingsJson}
       jq -e '.permission.edit."flake.lock" == "ask"' ${settingsJson}
       jq -e '.permission.bash."rm -rf /*" == "deny"' ${settingsJson}
@@ -86,20 +78,17 @@ in {
       touch "$out"
     '';
 
-  # Defaults posture: pkgs.opencode installed, no tui.json, no rtk plugin,
-  # CLAUDE.md fallback disabled.
-  defaults-posture =
-    pkgs.runCommand "opencode-defaults-posture" {
-      packagesJson = builtins.toJSON (map (p: p.name or "unnamed") defaults.config.home.packages);
-      sessionVars = builtins.toJSON defaults.config.home.sessionVariables;
-      hasTui = builtins.hasAttr "opencode/tui.json" defaultsFiles;
-      hasRtkPlugin = builtins.hasAttr "opencode/plugins/rtk.ts" defaultsFiles;
-      nativeBuildInputs = [pkgs.jq];
-    } ''
-      echo "$packagesJson" | jq -e 'map(select(startswith("opencode"))) | length == 1'
-      echo "$sessionVars" | jq -e '.OPENCODE_DISABLE_CLAUDE_CODE == "1"'
-      [ "$hasTui" = "" ] || { echo "tui.json rendered despite tui.enable = false" >&2; exit 1; }
-      [ "$hasRtkPlugin" = "" ] || { echo "rtk plugin rendered despite rtk.enable = false" >&2; exit 1; }
-      touch "$out"
-    '';
+  # Defaults posture, asserted at eval time so `nix flake check --no-build`
+  # already catches regressions: pkgs.opencode installed, no tui.json, no
+  # rtk plugin, CLAUDE.md fallback disabled.
+  defaults-posture = assert lib.assertMsg (!(defaultsFiles ? "opencode/tui.json"))
+  "tui.json rendered despite tui.enable = false";
+  assert lib.assertMsg (!(defaultsFiles ? "opencode/plugins/rtk.ts"))
+  "rtk plugin rendered despite rtk.enable = false";
+  assert lib.assertMsg (defaults.config.home.sessionVariables.OPENCODE_DISABLE_CLAUDE_CODE == "1")
+  "OPENCODE_DISABLE_CLAUDE_CODE not set";
+  assert lib.assertMsg
+  (lib.count (p: lib.hasPrefix "opencode" (lib.getName p)) defaults.config.home.packages == 1)
+  "expected exactly one opencode package in home.packages";
+    pkgs.runCommand "opencode-defaults-posture" {} "touch $out";
 }

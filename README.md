@@ -22,11 +22,12 @@ Design record: `desktop-nixos/docs/proposals/2026-07-01-opencode-flake.md`
 - **RTK plugin** (opt-in): installs `plugins/rtk.ts`, which rewrites bash
   tool commands through `rtk rewrite`. Requires `rtk` on PATH at runtime.
 - **TUI** (opt-in): tokyonight theme, attention sounds, `ctrl+x` leader.
-- **Package**: installs `pkgs.opencode` by default (the conservative lane;
-  a future `withPackage` module will provide the flake-owned fast lane). A
-  files-only profile is not possible: upstream `programs.opencode` crashes
-  on `package = null` (`versionAtLeast null` in its tui deprecation
-  warning) — worth an upstream report.
+- **Package**: upstream's default (`pkgs.opencode`) — the conservative
+  lane; a future `withPackage` module will provide the flake-owned fast
+  lane. Override `programs.opencode.package` directly. A files-only profile
+  (`package = null`) is not possible: upstream crashes on it
+  (`versionAtLeast null` in its tui deprecation warning) — worth an
+  upstream report.
 
 ## Usage
 

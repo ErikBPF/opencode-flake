@@ -35,7 +35,6 @@
           packages = with pkgs; [
             alejandra
             deadnix
-            jq
             just
             nil
             statix
@@ -44,10 +43,7 @@
       };
 
       flake = {
-        homeManagerModules = {
-          default = import ./modules/home-manager.nix;
-          opencode-profile = self.homeManagerModules.default;
-        };
+        homeManagerModules.default = import ./modules/home-manager.nix;
       };
     };
 }

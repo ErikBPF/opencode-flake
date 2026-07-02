@@ -1,39 +1,46 @@
 {
   config,
   lib,
-  pkgs,
   ...
 }: let
   cfg = config.programs.opencode-profile;
   inherit (lib) mkEnableOption mkIf mkOption optionalString types;
 
+  # opencode permission rules are last-match-wins, and upstream renders
+  # `settings` with a DAG-ordered JSON generator: pin every specific rule
+  # after the "*" catch-all instead of relying on attr-name sort order.
+  # Each rule is mkDefault so a consumer can override one leaf without
+  # mkForce.
+  rule = value: lib.mkDefault (lib.hm.dag.entryAfter ["*"] value);
+
   # G1 permission guardrails: yolo defaults, secrets denied, raw remote
   # deploys denied (correct paths go through `just` recipes).
   permissionDefaults = {
     edit = {
-      "*" = "allow";
-      "flake.lock" = "ask";
-      "**/*.sops" = "deny";
-      "**/.env.sops" = "deny";
-      "**/.env" = "deny";
-      "**/.env.*" = "deny";
-      "secrets/**" = "deny";
-      "**/*.age" = "deny";
+      "*" = lib.mkDefault "allow";
+      "flake.lock" = rule "ask";
+      "**/*.sops" = rule "deny";
+      "**/.env.sops" = rule "deny";
+      "**/.env" = rule "deny";
+      "**/.env.*" = rule "deny";
+      "secrets/**" = rule "deny";
+      "**/*.age" = rule "deny";
     };
     bash = {
-      "*" = "allow";
-      "rm -rf /*" = "deny";
-      "rm -rf ~*" = "deny";
-      "docker volume rm *" = "deny";
-      "nixos-rebuild switch --target-host *" = "deny";
-      "ssh *nixos-rebuild switch*" = "deny";
-      "ssh *docker compose*up*" = "deny";
+      "*" = lib.mkDefault "allow";
+      "rm -rf /*" = rule "deny";
+      "rm -rf ~*" = rule "deny";
+      "docker volume rm *" = rule "deny";
+      "nixos-rebuild switch --target-host *" = rule "deny";
+      "ssh *nixos-rebuild switch*" = rule "deny";
+      "ssh *docker compose*up*" = rule "deny";
     };
   };
 
-  # G3 theme + attention tui.json (tokyonight).
-  tuiDefaults = {
-    theme = cfg.tui.theme;
+  # G3 theme + attention tui.json (tokyonight). All leaves mkDefault so a
+  # consumer overrides via `programs.opencode.tui` without mkForce.
+  tuiDefaults = lib.mapAttrsRecursive (_: lib.mkDefault) {
+    theme = "tokyonight";
     diff_style = "auto";
     mouse = true;
     leader_timeout = 2000;
@@ -73,9 +80,7 @@
   styleText =
     if cfg.style.text != null
     then cfg.style.text
-    else if cfg.style.name == "caveman"
-    then cavemanText
-    else "";
+    else cavemanText;
 
   contextText =
     lib.concatStringsSep "\n\n"
@@ -88,30 +93,16 @@ in {
   options.programs.opencode-profile = {
     enable = mkEnableOption "opencode profile layered on programs.opencode";
 
-    package = mkOption {
-      type = types.package;
-      default = pkgs.opencode;
-      defaultText = "pkgs.opencode";
+    permissions.enable = mkOption {
+      type = types.bool;
+      default = true;
       description = ''
-        opencode package to install. A files-only profile
-        (`programs.opencode.package = null`) is not supported: the upstream
-        Home Manager module crashes on a null package
-        (`versionAtLeast null` in its tui deprecation warning).
+        Set the G1 permission guardrails in
+        `programs.opencode.settings.permission`: allow-by-default with
+        secrets (`*.sops`, `.env*`, `*.age`, `secrets/`) denied for edit,
+        `flake.lock` edits behind a prompt, and destructive or raw
+        remote-deploy shell commands denied.
       '';
-    };
-
-    permissions = {
-      enable = mkOption {
-        type = types.bool;
-        default = true;
-        description = ''
-          Set the G1 permission guardrails in
-          `programs.opencode.settings.permission`: allow-by-default with
-          secrets (`*.sops`, `.env*`, `*.age`, `secrets/`) denied for edit,
-          `flake.lock` edits behind a prompt, and destructive or raw
-          remote-deploy shell commands denied.
-        '';
-      };
     };
 
     mcpNixos.enable = mkOption {
@@ -120,18 +111,14 @@ in {
       description = "Register the mcp-nixos server in `programs.opencode.settings.mcp`.";
     };
 
-    tui = {
-      enable = mkOption {
-        type = types.bool;
-        default = false;
-        description = "Manage `tui.json` (theme, attention sounds, leader key) via `programs.opencode.tui`.";
-      };
-
-      theme = mkOption {
-        type = types.str;
-        default = "tokyonight";
-        description = "opencode TUI theme.";
-      };
+    tui.enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Manage `tui.json` (tokyonight theme, attention sounds, leader key)
+        via `programs.opencode.tui`. Individual leaves are `mkDefault`, so
+        overrides merge without `mkForce`.
+      '';
     };
 
     agents = {
@@ -165,12 +152,6 @@ in {
         description = "Render default response style guidance into `AGENTS.md`.";
       };
 
-      name = mkOption {
-        type = types.enum ["caveman" "custom"];
-        default = "caveman";
-        description = "Built-in style guidance to render when `style.text` is null.";
-      };
-
       level = mkOption {
         type = types.enum ["lite" "full" "ultra"];
         default = "full";
@@ -180,7 +161,7 @@ in {
       text = mkOption {
         type = types.nullOr types.lines;
         default = null;
-        description = "Custom response style guidance.";
+        description = "Custom response style guidance replacing the caveman text.";
       };
     };
 
@@ -190,8 +171,10 @@ in {
       description = ''
         Install the RTK opencode plugin
         (`~/.config/opencode/plugins/rtk.ts`). The plugin rewrites bash tool
-        commands through `rtk rewrite` and disables itself when `rtk` is not
-        on PATH. Requires rtk >= 0.23.0 at runtime.
+        commands through `rtk rewrite`. rtk itself is deliberately not
+        nix-managed here (no reusable package exists); the plugin
+        self-disables when `rtk` is missing from PATH at session start.
+        Requires rtk >= 0.23.0.
       '';
     };
 
@@ -201,7 +184,10 @@ in {
       description = ''
         Set `OPENCODE_DISABLE_CLAUDE_CODE=1` so opencode does not fall back
         to reading `~/.claude/CLAUDE.md` and Claude Code skills. The profile
-        owns the global `AGENTS.md` instead.
+        owns the global `AGENTS.md` instead. Set via
+        `home.sessionVariables`, so it covers shells and GUI sessions but
+        not systemd-launched `opencode serve` — wrap the package if that
+        launch path ever matters.
       '';
     };
   };
@@ -209,19 +195,21 @@ in {
   config = mkIf cfg.enable {
     programs.opencode = {
       enable = true;
-
-      # mkDefault so a consumer can point programs.opencode.package elsewhere
-      # without fighting the profile.
-      package = lib.mkDefault cfg.package;
+      # The package is upstream's default (pkgs.opencode); override
+      # `programs.opencode.package` directly. `null` (files-only) is not
+      # supported: upstream crashes on it (`versionAtLeast null` in its tui
+      # deprecation warning).
 
       settings =
         (lib.optionalAttrs cfg.permissions.enable {
           permission = permissionDefaults;
         })
         // (lib.optionalAttrs cfg.mcpNixos.enable {
+          # Pinned tag, not a floating branch: `nix run` re-resolves at MCP
+          # server start, so an unpinned ref would drift per session.
           mcp.nix = {
             type = "local";
-            command = ["nix" "run" "github:utensils/mcp-nixos"];
+            command = ["nix" "run" "github:utensils/mcp-nixos/v2.4.3"];
             enabled = true;
           };
         });
@@ -231,6 +219,10 @@ in {
       context = mkIf cfg.agents.enable contextText;
     };
 
+    # Verbatim output of `rtk init -g --opencode` (rtk 0.35.0); refresh the
+    # vendored copy with that command when rtk bumps the plugin. Upstream
+    # programs.opencode has no plugins option (yet) — raw file drop is the
+    # documented opencode mechanism and matches what rtk itself installs.
     xdg.configFile."opencode/plugins/rtk.ts" = mkIf cfg.rtk.enable {
       source = ../plugins/rtk.ts;
     };
