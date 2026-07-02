@@ -67,7 +67,6 @@ main() {
 
   [ -f flake.nix ] && [ -f packages/opencode/package.nix ] || die "run from opencode-flake root"
   need nix
-  need nix-update
   need jq
   need cp
 
@@ -96,6 +95,10 @@ main() {
     log "update available: $current -> $latest"
     exit 1
   fi
+
+  # Only the mutation path needs nix-update; --check must work on a runner
+  # that has nothing but nix (broke codex-flake's scheduled check 2026-07-02).
+  need nix-update
 
   TMPDIR_UPDATE="$(mktemp -d)"
   export TMPDIR_UPDATE
