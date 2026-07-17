@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -86,6 +87,17 @@ jobs:
           labels: |
             dependencies
             automated
+
+      # PRs created with GITHUB_TOKEN do not emit a pull_request event. Dispatch
+      # the required workflow explicitly against the exact update branch so its
+      # check/package-build contexts attach to the PR head SHA.
+      - name: Dispatch required checks
+        if: steps.check.outputs.update_needed == 'true' && steps.create-pr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run check.yml \
+            --ref "update-opencode-${{ steps.check.outputs.latest }}"
 
       - name: Enable auto-merge
         if: steps.check.outputs.update_needed == 'true' && steps.create-pr.outputs.pull-request-number
