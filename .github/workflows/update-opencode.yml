@@ -105,6 +105,32 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr merge "${{ steps.create-pr.outputs.pull-request-number }}" --auto --squash --delete-branch
 
+      # Auto-merges performed with GITHUB_TOKEN do not emit a push event. Wait
+      # for the required PR checks and auto-merge, then explicitly start the
+      # main-branch publish/verification pipeline.
+      - name: Dispatch post-merge checks
+        if: steps.check.outputs.update_needed == 'true' && steps.create-pr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
+        run: |
+          for _ in $(seq 1 120); do
+            state="$(gh pr view "$PR_NUMBER" --json state --jq .state)"
+            case "$state" in
+              MERGED)
+                gh workflow run check.yml --ref main
+                exit 0
+                ;;
+              CLOSED)
+                echo "Update PR closed without merge" >&2
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          echo "Timed out waiting for update PR auto-merge" >&2
+          exit 1
+
       - name: Summary
         if: always()
         run: |
