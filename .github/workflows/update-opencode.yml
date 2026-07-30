@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: '23 9 * * *'
   workflow_dispatch: {}
+  workflow_run:
+    workflows: [check]
+    types: [completed]
 
 concurrency:
   group: ${{ github.workflow }}
@@ -16,6 +19,7 @@ permissions:
 
 jobs:
   check-and-update:
+    if: github.event_name != 'workflow_run'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -88,48 +92,11 @@ jobs:
             dependencies
             automated
 
-      # PRs created with GITHUB_TOKEN do not emit a pull_request event. Dispatch
-      # the required workflow explicitly against the exact update branch so its
-      # check/package-build contexts attach to the PR head SHA.
-      - name: Dispatch required checks
-        if: steps.check.outputs.update_needed == 'true' && steps.create-pr.outputs.pull-request-number
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh workflow run check.yml \
-            --ref "update-opencode-${{ steps.check.outputs.latest }}"
-
       - name: Enable auto-merge
         if: steps.check.outputs.update_needed == 'true' && steps.create-pr.outputs.pull-request-number
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr merge "${{ steps.create-pr.outputs.pull-request-number }}" --auto --squash --delete-branch
-
-      # Auto-merges performed with GITHUB_TOKEN do not emit a push event. Wait
-      # for the required PR checks and auto-merge, then explicitly start the
-      # main-branch publish/verification pipeline.
-      - name: Dispatch post-merge checks
-        if: steps.check.outputs.update_needed == 'true' && steps.create-pr.outputs.pull-request-number
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
-        run: |
-          for _ in $(seq 1 120); do
-            state="$(gh pr view "$PR_NUMBER" --json state --jq .state)"
-            case "$state" in
-              MERGED)
-                gh workflow run check.yml --ref main
-                exit 0
-                ;;
-              CLOSED)
-                echo "Update PR closed without merge" >&2
-                exit 1
-                ;;
-            esac
-            sleep 10
-          done
-          echo "Timed out waiting for update PR auto-merge" >&2
-          exit 1
 
       - name: Summary
         if: always()
@@ -142,3 +109,38 @@ jobs:
             echo "- Release: ${{ steps.check.outputs.release }}"
             echo "- Update needed: \`${{ steps.check.outputs.update_needed }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # GITHUB_TOKEN-created PR checks require maintainer approval. React after
+  # that trusted check run passes instead of holding the scheduled job open.
+  post-merge:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'update-opencode-')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch post-merge checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          UPDATE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          pr_number="$(gh pr list --head "$UPDATE_BRANCH" --state all --limit 1 --json number --jq '.[0].number // empty')"
+          test -n "$pr_number"
+          for _ in $(seq 1 30); do
+            state="$(gh pr view "$pr_number" --json state --jq .state)"
+            case "$state" in
+              MERGED)
+                gh workflow run check.yml --ref main
+                gh workflow run auto-tag-opencode-bump.yml --ref main
+                exit 0
+                ;;
+              CLOSED)
+                echo "Update PR closed without merge" >&2
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          echo "Timed out waiting for checked update PR to merge" >&2
+          exit 1

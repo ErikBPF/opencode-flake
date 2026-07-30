@@ -91,4 +91,19 @@ in {
   (lib.count (p: lib.hasPrefix "opencode" (lib.getName p)) defaults.config.home.packages == 1)
   "expected exactly one opencode package in home.packages";
     pkgs.runCommand "opencode-defaults-posture" {} "touch $out";
+
+  updater-post-merge = pkgs.runCommand "opencode-updater-post-merge" {} ''
+    workflow=${./.github/workflows/update-opencode.yml}
+    auto_tag=${./.github/workflows/auto-tag-opencode-bump.yml}
+    grep -Fq 'workflow_run:' "$workflow"
+    grep -Fq 'workflows: [check]' "$workflow"
+    grep -Fq "if: github.event_name != 'workflow_run'" "$workflow"
+    grep -Fq "github.event.workflow_run.event == 'pull_request'" "$workflow"
+    grep -Fq "github.event.workflow_run.conclusion == 'success'" "$workflow"
+    grep -Fq 'GH_REPO: ''${{ github.repository }}' "$workflow"
+    grep -Fq 'gh workflow run auto-tag-opencode-bump.yml --ref main' "$workflow"
+    grep -Fq 'workflow_dispatch:' "$auto_tag"
+    ! grep -Fq 'Dispatch required checks' "$workflow"
+    touch "$out"
+  '';
 }
