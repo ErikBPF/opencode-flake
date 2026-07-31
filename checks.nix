@@ -45,6 +45,37 @@
   # `passthru.jsonschema` uses `placeholder "out"`, which only resolves
   # inside the opencode derivation itself.
   opencodePkg = enabled.config.programs.opencode.package;
+
+  mockUpdateNix = pkgs.writeShellApplication {
+    name = "nix";
+    text = ''
+      if [ "$*" = "eval --raw .#opencode.version" ]; then
+        printf '%s\n' "1.0.0"
+        exit 0
+      fi
+      printf 'unexpected nix args: %s\n' "$*" >&2
+      exit 2
+    '';
+  };
+
+  mockNixUpdate = pkgs.writeShellApplication {
+    name = "nix-update";
+    runtimeInputs = [pkgs.gnused];
+    text = ''
+      version=""
+      file=""
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --version) version="$2"; shift 2 ;;
+          --override-filename) file="$2"; shift 2 ;;
+          *) shift ;;
+        esac
+      done
+      test -n "$version"
+      test -n "$file"
+      sed -i "s/^  version = \"[^\"]*\";/  version = \"$version\";/" "$file"
+    '';
+  };
 in {
   lint =
     pkgs.runCommand "opencode-flake-lint" {
@@ -92,18 +123,13 @@ in {
   "expected exactly one opencode package in home.packages";
     pkgs.runCommand "opencode-defaults-posture" {} "touch $out";
 
-  updater-post-merge = pkgs.runCommand "opencode-updater-post-merge" {} ''
-    workflow=${./.github/workflows/update-opencode.yml}
-    auto_tag=${./.github/workflows/auto-tag-opencode-bump.yml}
-    grep -Fq 'workflow_run:' "$workflow"
-    grep -Fq 'workflows: [check]' "$workflow"
-    grep -Fq "if: github.event_name != 'workflow_run'" "$workflow"
-    grep -Fq "github.event.workflow_run.event == 'pull_request'" "$workflow"
-    grep -Fq "github.event.workflow_run.conclusion == 'success'" "$workflow"
-    grep -Fq 'GH_REPO: ''${{ github.repository }}' "$workflow"
-    grep -Fq 'gh workflow run auto-tag-opencode-bump.yml --ref main' "$workflow"
-    grep -Fq 'workflow_dispatch:' "$auto_tag"
-    ! grep -Fq 'Dispatch required checks' "$workflow"
+  updater-mutation-only = pkgs.runCommand "opencode-updater-mutation-only" {} ''
+    cp -r ${self} source
+    chmod -R u+w source
+    cd source
+    PATH="${mockUpdateNix}/bin:${mockNixUpdate}/bin:${pkgs.jq}/bin:${pkgs.bash}/bin:${pkgs.coreutils}/bin:${pkgs.gnused}/bin:${pkgs.gnugrep}/bin" \
+      ${pkgs.bash}/bin/bash ./scripts/update-opencode.sh --version 9.9.9
+    grep -Fq 'version = "9.9.9";' packages/opencode/package.nix
     touch "$out"
   '';
 }
