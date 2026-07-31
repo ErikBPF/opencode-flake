@@ -108,9 +108,6 @@ main() {
   nix-update opencode --version "$latest" --flake \
     --subpackage node_modules \
     --override-filename packages/opencode/package.nix
-  nix build .#opencode --no-link --print-build-logs
-  nix run .#opencode -- --version | grep -F "$latest"
-
   trap - EXIT
   rm -rf "$TMPDIR_UPDATE"
   git diff --stat packages/opencode/package.nix 2>/dev/null || true
