@@ -20,6 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: CI notification contract
+        run: bash tests/ci-notification-contract.sh
+
       - uses: DeterminateSystems/determinate-nix-action@61cbfe2efc2d4e7a8a6d56967c3c1058e846c858 # v3
 
       - name: nix flake check
@@ -45,7 +48,7 @@ jobs:
           ./result/bin/opencode --version | grep -F "$version"
 
   notify-ci:
-    needs: [check, package-build]
+    needs: [check, package-build, flakehub-publish, flakehub-verify]
     if: ${{ always() && contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
