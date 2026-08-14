@@ -8,7 +8,7 @@
   defaults = inputs.home-manager.lib.homeManagerConfiguration {
     inherit pkgs;
     modules = [
-      self.homeManagerModules.default
+      self.homeManagerModules.withPackage
       {
         home = {
           username = "opencode-test";
@@ -110,7 +110,7 @@ in {
     '';
 
   # Defaults posture, asserted at eval time so `nix flake check --no-build`
-  # already catches regressions: pkgs.opencode installed, no tui.json, no
+  # already catches regressions: flake package installed, no tui.json, no
   # rtk plugin, CLAUDE.md fallback disabled.
   defaults-posture = assert lib.assertMsg (!(defaultsFiles ? "opencode/tui.json"))
   "tui.json rendered despite tui.enable = false";
