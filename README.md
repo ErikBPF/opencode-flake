@@ -22,9 +22,9 @@ Design record: `desktop-nixos/docs/proposals/2026-07-01-opencode-flake.md`
 - **RTK plugin** (opt-in): installs `plugins/rtk.ts`, which rewrites bash
   tool commands through `rtk rewrite`. Requires `rtk` on PATH at runtime.
 - **TUI** (opt-in): tokyonight theme, attention sounds, `ctrl+x` leader.
-- **Package**: upstream's default (`pkgs.opencode`) — the conservative
-  lane; a future `withPackage` module will provide the flake-owned fast
-  lane. Override `programs.opencode.package` directly. A files-only profile
+- **Package**: the default module uses upstream `pkgs.opencode`;
+  `homeManagerModules.withPackage` selects this flake's vendored package
+  (see below). Override `programs.opencode.package` directly. A files-only profile
   (`package = null`) is not possible: upstream crashes on it
   (`versionAtLeast null` in its tui deprecation warning) — worth an
   upstream report.
@@ -62,10 +62,9 @@ without waiting for their nixpkgs pin:
 imports = [inputs.opencode-flake.homeManagerModules.withPackage];
 ```
 
-A daily workflow checks upstream `anomalyco/opencode` releases, bumps
-version + hashes via `nix-update --subpackage node_modules`, builds and
-smoke-tests, then opens an auto-merge PR gated on required checks (which
-include the package build). Merges to main are tagged `opencode-vX.Y.Z`
+The shared `renovate-config` package updater opens App-authenticated bump
+PRs. This repository's required CI builds and smoke-tests the package
+before merge. Merges to main are tagged `opencode-vX.Y.Z`
 and published to FlakeHub as rolling releases.
 
 ## Trust modes
@@ -90,6 +89,7 @@ against the JSON schemas shipped by `pkgs.opencode`
 (`passthru.jsonschema`), asserts the guardrails/context/plugin render, and
 asserts the off-by-default posture (no package, no tui.json, no plugin).
 
-## Roadmap
+## Consumer integration
 
-- desktop-nixos adoption + laptop config migration (RFC §5).
+`desktop-nixos/modules/dev/opencode.nix` imports `withPackage`. Host routing
+and activation acceptance remain owned by desktop-nixos.
