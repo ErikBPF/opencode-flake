@@ -33,6 +33,10 @@
     ];
   };
 
+  withoutMcp = defaults.extendModules {
+    modules = [{programs.opencode-profile.mcpNixos.enable = false;}];
+  };
+
   enabledFiles = enabled.config.xdg.configFile;
   defaultsFiles = defaults.config.xdg.configFile;
 
@@ -102,6 +106,8 @@ in {
       jq -e '.permission.edit."flake.lock" == "ask"' ${settingsJson}
       jq -e '.permission.bash."rm -rf /*" == "deny"' ${settingsJson}
       jq -e '.mcp.nix.type == "local"' ${settingsJson}
+      jq -e '.mcp.nix.enabled == true and (.mcp.nix.command | length) == 1' ${settingsJson}
+      test -x "$(jq -r '.mcp.nix.command[0]' ${settingsJson})"
       jq -e '.theme == "tokyonight"' ${tuiJson}
       grep -q "profile-check-marker" ${agentsMd}
       grep -q "caveman" ${agentsMd}
@@ -121,6 +127,17 @@ in {
   assert lib.assertMsg
   (lib.count (p: lib.hasPrefix "opencode" (lib.getName p)) defaults.config.home.packages == 1)
   "expected exactly one opencode package in home.packages";
+  assert lib.assertMsg
+  (let
+    command = defaults.config.programs.opencode.settings.mcp.nix.command;
+  in
+    builtins.length command
+    == 1
+    && lib.hasPrefix "${builtins.storeDir}/" (builtins.head command)
+    && lib.hasSuffix "/bin/mcp-nixos" (builtins.head command))
+  "nix MCP must launch a built executable without runtime flake resolution";
+  assert lib.assertMsg (!((withoutMcp.config.programs.opencode.settings.mcp or {}) ? nix))
+  "nix MCP registered despite mcpNixos.enable = false";
     pkgs.runCommand "opencode-defaults-posture" {} "touch $out";
 
   updater-mutation-only = pkgs.runCommand "opencode-updater-mutation-only" {} ''

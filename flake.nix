@@ -13,6 +13,8 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    mcp-nixos.url = "github:utensils/mcp-nixos/v2.4.3";
   };
 
   outputs = inputs @ {
@@ -85,7 +87,7 @@
 
       flake = {
         homeManagerModules = {
-          default = import ./modules/home-manager.nix;
+          default = import ./modules/home-manager.nix {mcpNixos = inputs.mcp-nixos;};
           withPackage = {pkgs, ...}: {
             imports = [self.homeManagerModules.default];
             programs.opencode.package = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
