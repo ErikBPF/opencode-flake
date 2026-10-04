@@ -1,6 +1,7 @@
-{
+{mcpNixos}: {
   config,
   lib,
+  pkgs,
   ...
 }: let
   cfg = config.programs.opencode-profile;
@@ -205,11 +206,10 @@ in {
           permission = permissionDefaults;
         })
         // (lib.optionalAttrs cfg.mcpNixos.enable {
-          # Pinned tag, not a floating branch: `nix run` re-resolves at MCP
-          # server start, so an unpinned ref would drift per session.
+          # Realize the pinned package at deployment, not during MCP startup.
           mcp.nix = {
             type = "local";
-            command = ["nix" "run" "github:utensils/mcp-nixos/v2.4.3"];
+            command = [(lib.getExe mcpNixos.packages.${pkgs.stdenv.hostPlatform.system}.mcp-nixos)];
             enabled = true;
           };
         });
