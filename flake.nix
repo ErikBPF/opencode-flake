@@ -27,10 +27,12 @@
 
       perSystem = {pkgs, ...}: let
         opencodePackage = pkgs.callPackage ./packages/opencode/package.nix {};
+        opencodeV2Package = pkgs.callPackage ./packages/opencode-v2/package.nix {};
       in {
         packages = {
           default = opencodePackage;
           opencode = opencodePackage;
+          opencode-v2 = opencodeV2Package;
         };
 
         apps = {
@@ -43,6 +45,11 @@
             type = "app";
             program = "${opencodePackage}/bin/opencode";
             meta.description = "Run packaged opencode";
+          };
+          opencode-v2 = {
+            type = "app";
+            program = "${opencodeV2Package}/bin/opencode";
+            meta.description = "Run packaged opencode v2";
           };
           update = {
             type = "app";
@@ -91,6 +98,10 @@
           withPackage = {pkgs, ...}: {
             imports = [self.homeManagerModules.default];
             programs.opencode.package = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode;
+          };
+          withPackageV2 = {pkgs, ...}: {
+            imports = [self.homeManagerModules.default];
+            programs.opencode.package = self.packages.${pkgs.stdenv.hostPlatform.system}.opencode-v2;
           };
         };
 
