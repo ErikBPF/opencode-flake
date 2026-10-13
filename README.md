@@ -67,6 +67,16 @@ PRs. This repository's required CI builds and smoke-tests the package
 before merge. Merges to main are tagged `opencode-vX.Y.Z`
 and published to FlakeHub as rolling releases.
 
+### V2 binary lane
+
+`packages.opencode-v2` / `homeManagerModules.withPackageV2` select the official
+`@opencode/cli-linux-x64` binary; V1 remains the default. Use
+`just update-v2-check`, `just update-v2`, or `just update-v2-to 2.X.Y` to check
+or update its npm version and fixed-output integrity hash without building.
+The required `package-build` job builds and checks both V1 and V2 versions;
+`checks.updater-v2-mutation-only` tests V2 updater isolation and metadata validation.
+Publish the leaf and pin its revision before activating a consumer.
+
 ## Trust modes
 
 - **Rolling** (FlakeHub wildcard / `main`): every commit that passed the

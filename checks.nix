@@ -140,6 +140,14 @@ in {
   "nix MCP registered despite mcpNixos.enable = false";
     pkgs.runCommand "opencode-defaults-posture" {} "touch $out";
 
+  updater-v2-mutation-only =
+    pkgs.runCommand "opencode-v2-updater-mutation-only" {
+      nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.gnused pkgs.jq pkgs.just];
+    } ''
+      bash ${self}/tests/opencode-v2-contract.sh
+      touch "$out"
+    '';
+
   updater-mutation-only = pkgs.runCommand "opencode-updater-mutation-only" {} ''
     cp -r ${self} source
     chmod -R u+w source

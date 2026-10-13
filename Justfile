@@ -23,3 +23,13 @@ update:
 # Pin the packaged opencode to a specific version
 update-to VERSION:
     ./scripts/update-opencode.sh --version {{VERSION}}
+
+# V2 is an independent official npm binary lane; V1 recipes stay unchanged.
+update-v2-check:
+    ./scripts/update-opencode-v2.sh --check
+
+update-v2:
+    ./scripts/update-opencode-v2.sh
+
+update-v2-to VERSION:
+    ./scripts/update-opencode-v2.sh --version {{quote(VERSION)}}

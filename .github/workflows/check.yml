@@ -40,12 +40,14 @@ jobs:
 
       - uses: DeterminateSystems/determinate-nix-action@021c8a1bd3570eb21f5c20a054812b0c4d9ca614 # v3
 
-      - name: Build and smoke-test the opencode package
+      - name: Build and smoke-test the V1 and V2 packages
         run: |
           set -euo pipefail
-          nix build .#opencode --print-build-logs
-          version="$(nix eval --raw .#opencode.version)"
-          ./result/bin/opencode --version | grep -F "$version"
+          for package in opencode opencode-v2; do
+            nix build ".#$package" --print-build-logs
+            version="$(nix eval --raw ".#$package.version")"
+            ./result/bin/opencode --version | grep -Fx -e "$version" -e "opencode v$version"
+          done
 
   notify-ci:
     needs: [check, package-build, flakehub-publish, flakehub-verify]
