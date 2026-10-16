@@ -21,7 +21,7 @@
 }:
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "opencode";
-  version = "1.19.0";
+  version = "1.19.3";
 
   __structuredAttrs = true;
   strictDeps = true;
@@ -30,7 +30,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     owner = "anomalyco";
     repo = "opencode";
     tag = "v${finalAttrs.version}";
-    hash = "sha256-XL76Qpm4GEFEn7Pt7g84sx+djEKnlpTTZXRgXJF3NRs=";
+    hash = "sha256-NI994pBur/Lt3wSDamFxE4sb0fKq2+Kue/77i/8BTlo=";
   };
 
   node_modules = stdenvNoCC.mkDerivation {
