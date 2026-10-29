@@ -14,7 +14,7 @@
   versionCheckHook,
   writableTmpDirAsHomeHook,
 }: let
-  version = "2.0.27";
+  version = "2.2.1";
 in
   stdenvNoCC.mkDerivation {
     pname = "opencode-v2";
@@ -22,7 +22,7 @@ in
 
     src = fetchurl {
       url = "https://registry.npmjs.org/@opencode/cli-linux-x64/-/cli-linux-x64-${version}.tgz";
-      hash = "sha512-QPGrzBSSs5ATG3nM4XjS4tmWXUB22Di36H0vfMuhKwk6i3PR3Nb4sm+l00gvTdcyCRohYsKwqjvD67T0DPcQLQ==";
+      hash = "sha512-ZqNT3vfRDp+/o7plz7X5+Vb5abnxnuflRQwQ2t2sXIaoAd8Lja24D+7z8ruZRN9XfZabUfvBYuDLx4xBuuanfg==";
     };
 
     nativeBuildInputs = [autoPatchelfHook];
